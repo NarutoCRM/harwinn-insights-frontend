@@ -84,6 +84,39 @@ it.skipIf(!process.env.HARWINN_BACKEND_PATH)(
           trackingPath(project.pid, "COMPLETE", "uid=u&transactionId=new"),
         ),
       ).rejects.toMatchObject({ status: 404 });
+      const updated = await request(`/api/projects/${project.id}`, {
+        token, method: "PATCH", body: { pid: "CLIENT-UPDATED", name: "Client study", active: true },
+      });
+      expect(updated).toMatchObject({ id: project.id, pid: "CLIENT-UPDATED", name: "Client study" });
+      const second = await request("/api/projects", {
+        token, method: "POST", body: { pid: "CLIENT-SECOND", name: "Client study" },
+      });
+      await expect(request(`/api/projects/${project.id}`, {
+        token, method: "PATCH", body: { pid: second.pid },
+      })).rejects.toMatchObject({ status: 409 });
+      const retry = await request(trackingPath(updated.pid, "COMPLETE",
+        `uid=u-COMPLETE&transactionId=tx-COMPLETE&inTime=${encodeURIComponent(records.records[0].inTime)}`));
+      expect(retry.duplicate).toBe(true);
+      expect(retry.record.projectId).toBe(project.id);
+      const report = await request(`/api/records?pid=${updated.pid}`, { token });
+      expect(report.total).toBe(4);
+      expect(report.records.every(row => row.project.pid === updated.pid)).toBe(true);
+      await expect(request(trackingPath(project.pid, "COMPLETE", "uid=u&transactionId=new")))
+        .rejects.toMatchObject({ status: 404 });
+      for (const body of [{ name: "Optional study" }, { name: "Optional study", pid: "" }]) {
+        const blank = await request("/api/projects", { token, method: "POST", body });
+        expect(blank.pid).toBeNull();
+        const edited = await request(`/api/projects/${blank.id}`, { token, method: "PATCH", body: { name: "Persisted edit", pid: "" } });
+        expect(edited).toMatchObject({ id: blank.id, name: "Persisted edit", pid: null });
+        expect(await request(`/api/projects/${blank.id}`, { token })).toMatchObject({ name: "Persisted edit", pid: null });
+        expect(db.projects.find(value => value.id === blank.id).name).toBe("Persisted edit");
+        const listed = await request("/api/projects", { token });
+        expect(listed.projects.find(value => value.id === blank.id)).toMatchObject({ name: "Persisted edit", pid: null });
+      }
+      await request(`/api/projects/${updated.id}`, { token, method: "PATCH", body: { pid: null } });
+      await expect(request(trackingPath(updated.pid, "COMPLETE", "uid=u&transactionId=new"))).rejects.toMatchObject({ status: 404 });
+      const history = await request("/api/records", { token });
+      expect(history.records.filter(row => row.projectId === updated.id)).toHaveLength(4);
       const empty = await request("/api/projects", {
         token,
         method: "POST",

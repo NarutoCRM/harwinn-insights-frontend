@@ -1,4 +1,7 @@
-﻿import { StrictMode } from "react";
+import { createRequire } from "node:module";
+import { join } from "node:path";
+import { request as apiRequest } from "../src/lib/api.js";
+import { StrictMode } from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -168,9 +171,9 @@ describe("Frontend flows", () => {
     render(<Projects api={api} />);
     await screen.findByText("No projects yet");
     const user = userEvent.setup();
-    await user.type(screen.getByLabelText("Project PID"), "DEMO");
-    await user.type(screen.getByLabelText("Project name"), "Consumer study");
-    await user.click(screen.getByRole("button", { name: "Create project" }));
+    await user.type(screen.getByLabelText("Project ID"), "DEMO");
+    await user.type(screen.getByLabelText("Project Name"), "Consumer study");
+    await user.click(screen.getByRole("button", { name: "Add project" }));
     await screen.findByText("Project created.");
     expect(api).toHaveBeenCalledWith(
       "/api/projects",
@@ -180,7 +183,7 @@ describe("Frontend flows", () => {
       }),
     );
   });
-  it("edits name/active without changing PID, and shows deletion conflicts", async () => {
+  it("edits client Project ID/name/active, and shows deletion conflicts", async () => {
     const api = vi.fn(async (path, opts) => {
       if (opts?.method === "DELETE")
         throw new Error("Resource has dependent records");
@@ -191,7 +194,10 @@ describe("Frontend flows", () => {
     await screen.findByText("Consumer study");
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Edit" }));
-    const name = screen.getAllByLabelText("Project name").at(-1);
+    const pid = screen.getAllByLabelText("Project ID").at(-1);
+    await user.clear(pid);
+    await user.type(pid, "CLIENT-UPDATED");
+    const name = screen.getAllByLabelText("Project Name").at(-1);
     await user.clear(name);
     await user.type(name, "Updated study");
     await user.click(screen.getByLabelText("Accept callbacks"));
@@ -201,7 +207,7 @@ describe("Frontend flows", () => {
       `/api/projects/${project.id}`,
       expect.objectContaining({
         method: "PATCH",
-        body: { name: "Updated study", active: false },
+        body: { pid: "CLIENT-UPDATED", name: "Updated study", active: false },
       }),
     );
     await screen.findByText("Consumer study");
@@ -213,6 +219,149 @@ describe("Frontend flows", () => {
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(screen.getByText("Consumer study")).toBeTruthy();
   });
+  it.each(["POST", "PATCH"])("keeps form values and reports duplicate Project IDs on %s", async (method) => {
+    const api = vi.fn(async (path, opts) => {
+      if (opts?.method === method) throw Object.assign(new Error("Resource already exists"), { status: 409 });
+      return { projects: [project] };
+    });
+    render(<Projects api={api} />);
+    await screen.findByText("Consumer study");
+    const user = userEvent.setup();
+    if (method === "PATCH") await user.click(screen.getByRole("button", { name: "Edit" }));
+    const pid = screen.getAllByLabelText("Project ID").at(-1);
+    const name = screen.getAllByLabelText("Project Name").at(-1);
+    await user.clear(pid);
+    await user.type(pid, "EXISTING-ID");
+    await user.clear(name);
+    await user.type(name, "Client project");
+    await user.click(screen.getByRole("button", { name: method === "POST" ? "Add project" : "Save changes" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("Project ID is already in use");
+    expect(pid.value).toBe("EXISTING-ID");
+    expect(name.value).toBe("Client project");
+    expect(screen.queryByText("Project updated.")).toBeNull();
+    expect(screen.queryByText("Project created.")).toBeNull();
+  });
+  it("keeps multiple same-name projects and refreshes selected links after a Project ID edit", async () => {
+    const projects = [{ ...project }, { ...project, id: "550e8400-e29b-41d4-a716-446655440001", pid: "SECOND" }];
+    const api = vi.fn(async (path, opts) => {
+      if (opts?.method === "PATCH") {
+        Object.assign(projects[0], opts.body);
+        return { ...projects[0] };
+      }
+      return { projects: projects.map(value => ({ ...value })) };
+    });
+    render(<Projects api={api} />);
+    await screen.findByText("SECOND");
+    expect(screen.getAllByText("Consumer study")).toHaveLength(2);
+    const user = userEvent.setup();
+    await user.click(screen.getAllByRole("button", { name: "Outcome links" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
+    const pid = screen.getAllByLabelText("Project ID").at(-1);
+    await user.clear(pid);
+    await user.type(pid, "CLIENT-UPDATED");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await screen.findByText("Project updated.");
+    expect(screen.getByText(/\/tracking\/CLIENT-UPDATED\/COMPLETE\?uid=/)).toBeTruthy();
+    expect(screen.queryByText(/\/tracking\/DEMO\/COMPLETE\?uid=/)).toBeNull();
+    expect(await screen.findByText("SECOND")).toBeTruthy();
+    expect(screen.getAllByText("Consumer study")).toHaveLength(2);
+  });
+  it("creates and edits a visible project with a blank ID, without tracking links", async () => {
+    let saved = null;
+    const api = vi.fn(async (path, opts) => {
+      if (opts?.method === "POST") return saved = { ...project, ...opts.body };
+      if (opts?.method === "PATCH") return saved = { ...saved, ...opts.body };
+      return { projects: saved ? [{ ...saved }] : [] };
+    });
+    render(<Projects api={api} />);
+    await screen.findByText("No projects yet");
+    const user = userEvent.setup();
+    expect(screen.getByLabelText("Project ID").required).toBe(false);
+    await user.type(screen.getByLabelText("Project Name"), "No ID study");
+    await user.click(screen.getByRole("button", { name: "Add project" }));
+    await screen.findByText("Project created.");
+    await screen.findByText("No ID study");
+    expect(saved.pid).toBeNull();
+    expect(screen.getByText("Not assigned")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Outcome links" }));
+    expect(screen.getByText(/Add a Project ID before sharing/)).toBeTruthy();
+    expect(screen.queryByText(/\/tracking\/null\//)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const name = screen.getAllByLabelText("Project Name").at(-1);
+    const pid = screen.getAllByLabelText("Project ID").at(-1);
+    expect(pid.value).toBe("");
+    expect(pid.required).toBe(false);
+    expect(name.value).toBe("No ID study");
+    await user.clear(name);
+    await user.type(name, "Persisted new name");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await screen.findByText("Project updated.");
+    await screen.findByText("Persisted new name");
+    expect(api).toHaveBeenCalledWith(`/api/projects/${project.id}`, expect.objectContaining({ method: "PATCH", body: { pid: null, name: "Persisted new name", active: true } }));
+    expect(saved.name).toBe("Persisted new name");
+  });
+  it("prevents duplicate edit submissions while the backend save is pending", async () => {
+    let finish;
+    let stored = { ...project };
+    const pending = new Promise(resolve => { finish = resolve; });
+    const api = vi.fn(async (path, opts) => {
+      if (opts?.method === "PATCH") { await pending; stored = { ...stored, ...opts.body }; return stored; }
+      return { projects: [{ ...stored }] };
+    });
+    render(<Projects api={api} />);
+    await screen.findByText("Consumer study");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    const pid = screen.getAllByLabelText("Project ID").at(-1);
+    fireEvent.change(pid, { target: { value: "" } });
+    const save = screen.getByRole("button", { name: "Save changes" });
+    fireEvent.submit(save.closest("form"));
+    fireEvent.submit(save.closest("form"));
+    expect(save.disabled).toBe(true);
+    expect(api.mock.calls.filter(([, opts]) => opts?.method === "PATCH")).toHaveLength(1);
+    expect(screen.queryByText("Project updated.")).toBeNull();
+    finish();
+    await screen.findByText("Project updated.");
+    await screen.findByText("Not assigned");
+    expect(stored.pid).toBeNull();
+  });
+  it.skipIf(!process.env.HARWINN_BACKEND_PATH)("persists an Edit submission through the real API client and Express backend", async () => {
+    const { fakeDb, appFor, adminToken } = createRequire(import.meta.url)(join(process.env.HARWINN_BACKEND_PATH, "test/helpers.js"));
+    const db = fakeDb();
+    const token = await adminToken(db);
+    const server = appFor(db).listen(0, "127.0.0.1");
+    await new Promise(resolve => server.once("listening", resolve));
+    const realFetch = globalThis.fetch;
+    const base = `http://127.0.0.1:${server.address().port}`;
+    vi.stubGlobal("fetch", (path, options) => realFetch(base + path, options));
+    const api = (path, options = {}) => apiRequest(path, { ...options, token });
+    try {
+      const original = await api("/api/projects", { method: "POST", body: { pid: "CLIENT-ORIGINAL", name: "Existing saved project" } });
+      const mounted = render(<Projects api={api} />);
+      await screen.findByText("Existing saved project");
+      const user = userEvent.setup();
+      const edit = screen.getByText("Existing saved project").closest("tr").querySelector("button");
+      await user.click(edit);
+      const name = screen.getAllByLabelText("Project Name").at(-1);
+      const pid = screen.getAllByLabelText("Project ID").at(-1);
+      expect(name.value).toBe("Existing saved project");
+      expect(pid.value).toBe("CLIENT-ORIGINAL");
+      await user.clear(name);
+      await user.type(name, "Saved through HTTP");
+      await user.clear(pid);
+      await user.click(screen.getByRole("button", { name: "Save changes" }));
+      await screen.findByText("Project updated.");
+      await screen.findByText("Saved through HTTP");
+      expect(await api(`/api/projects/${original.id}`)).toMatchObject({ name: "Saved through HTTP", pid: null });
+      expect(db.projects.find(value => value.id === original.id)).toMatchObject({ name: "Saved through HTTP", pid: null });
+      mounted.unmount();
+      render(<Projects api={api} />);
+      await screen.findByText("Saved through HTTP");
+      expect(screen.getByText("Not assigned")).toBeTruthy();
+    } finally {
+      vi.unstubAllGlobals();
+      await new Promise(resolve => server.close(resolve));
+    }
+  }, 15000);
   it("generates four canonical callback links and safe previews", async () => {
     const api = vi.fn().mockResolvedValue({ projects: [project] });
     render(<Projects api={api} />);
