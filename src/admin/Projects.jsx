@@ -4,12 +4,16 @@ import { ErrorMessage, Pager } from "./ui.jsx";
 function CallbackLinks({ project }) {
   const [copied, setCopied] = useState(""),
     [error, setError] = useState(null);
-  if (!project.pid) return (
-    <section className="hi-panel">
-      <h2>Outcome links ? {project.name}</h2>
-      <p>Add a Project ID before sharing tracking links. Existing records remain available.</p>
-    </section>
-  );
+  if (!project.pid)
+    return (
+      <section className="hi-panel">
+        <h2>Outcome links ? {project.name}</h2>
+        <p>
+          Add a Project ID before sharing tracking links. Existing records
+          remain available.
+        </p>
+      </section>
+    );
   const urls = OUTCOMES.map((status) => ({
     status,
     url: `${window.location.origin}/tracking/${encodeURIComponent(project.pid)}/${status}?uid=RESPONDENT_ID&transactionId=TRANSACTION_ID`,
@@ -107,15 +111,20 @@ export default function Projects({ api }) {
       setNotice(message);
       setEditing(null);
       setDeleting(null);
-      if (selected && editing && selected.id === editing.id) setSelected(result);
+      if (selected && editing && selected.id === editing.id)
+        setSelected(result);
       if (method === "DELETE" && selected?.id === deleting?.id)
         setSelected(null);
       setRefresh((n) => n + 1);
       return true;
     } catch (err) {
-      setError(err.status === 409 && method !== "DELETE"
-        ? new Error("This Project ID is already in use. Enter a distinct Project ID.")
-        : err);
+      setError(
+        err.status === 409 && method !== "DELETE"
+          ? new Error(
+              "This Project ID is already in use. Enter a distinct Project ID.",
+            )
+          : err,
+      );
       return false;
     } finally {
       mutationPending.current = false;
@@ -162,10 +171,15 @@ export default function Projects({ api }) {
       )}
       <section className="hi-panel">
         <h2>Add a project</h2>
-        <p>Share the agreed platform/tool link with your client. Once they have added it to their system, ask for their Project ID and Project Name, then save them here. Add each project separately, including projects from the same company.</p>
+        <p>
+          Share the agreed platform/tool link with your client. Once they have
+          added it to their system, ask for their Project ID and Project Name,
+          then save them here. Add each project separately, including projects
+          from the same company.
+        </p>
         <form className="hi-project-form" onSubmit={create}>
           <label>
-            Project ID
+            Company ID
             <input
               name="pid"
               pattern={ID_PATTERN}
@@ -175,7 +189,9 @@ export default function Projects({ api }) {
             />
           </label>
           <label>
-            Project Name
+            <span>
+              Company Name <span className="text-[#8f0808]">*</span>
+            </span>
             <input
               disabled={saving}
               name="name"
@@ -189,11 +205,20 @@ export default function Projects({ api }) {
           </button>
         </form>
         <p className="hi-muted">
-          Project ID is optional. When provided, it must be unique. Projects from the same company and repeated project names are supported. Add an ID before using tracking links.
+          Project ID is optional. When provided, it must be unique. Projects
+          from the same company and repeated project names are supported. Add an
+          ID before using tracking links.
         </p>
       </section>
       <section className="hi-panel hi-data-panel" aria-busy={busy}>
-        {!busy && !data && error && <button className="hi-secondary" onClick={() => setRefresh(n => n + 1)}>Retry loading projects</button>}
+        {!busy && !data && error && (
+          <button
+            className="hi-secondary"
+            onClick={() => setRefresh((n) => n + 1)}
+          >
+            Retry loading projects
+          </button>
+        )}
         {busy ? (
           <p role="status">Loading projects…</p>
         ) : (
@@ -230,7 +255,10 @@ export default function Projects({ api }) {
                                 className="hi-secondary"
                                 disabled={saving}
                                 onClick={() => {
-                                  setEditing({ ...project, pid: project.pid ?? "" });
+                                  setEditing({
+                                    ...project,
+                                    pid: project.pid ?? "",
+                                  });
                                   setDeleting(null);
                                 }}
                               >
@@ -262,7 +290,10 @@ export default function Projects({ api }) {
               ) : (
                 <div className="hi-empty">
                   <h2>No projects yet</h2>
-                  <p>Add the Project ID and Project Name supplied by your client to accept survey callbacks.</p>
+                  <p>
+                    Add the Project ID and Project Name supplied by your client
+                    to accept survey callbacks.
+                  </p>
                 </div>
               )}
               <Pager
@@ -290,7 +321,11 @@ export default function Projects({ api }) {
               mutate(
                 `/api/projects/${editing.id}`,
                 "PATCH",
-                { pid: editing.pid || null, name: editing.name.trim(), active: editing.active },
+                {
+                  pid: editing.pid || null,
+                  name: editing.name.trim(),
+                  active: editing.active,
+                },
                 "Project updated.",
               );
             }}
@@ -299,7 +334,9 @@ export default function Projects({ api }) {
               Project ID
               <input
                 value={editing.pid}
-                onChange={(e) => setEditing({ ...editing, pid: e.target.value })}
+                onChange={(e) =>
+                  setEditing({ ...editing, pid: e.target.value })
+                }
                 pattern={ID_PATTERN}
                 disabled={saving}
                 maxLength={128}
@@ -341,8 +378,10 @@ export default function Projects({ api }) {
             </div>
           </form>
           <p className="hi-muted">
-            If you change the Project ID, share the updated outcome links with your client; old links stop accepting callbacks. Tracking history stays with this project. Inactive projects reject new callbacks. Existing records remain
-            available.
+            If you change the Project ID, share the updated outcome links with
+            your client; old links stop accepting callbacks. Tracking history
+            stays with this project. Inactive projects reject new callbacks.
+            Existing records remain available.
           </p>
         </section>
       )}
