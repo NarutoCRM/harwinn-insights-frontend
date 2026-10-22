@@ -23,7 +23,9 @@ function CallbackLinks({ project }) {
       <h2>Outcome links · {project.pid}</h2>
       <p>
         Replace RESPONDENT_ID and TRANSACTION_ID with real values. Keep the
-        transaction ID stable for retries. Optional username and inTime query
+        transaction ID stable for retries and unique per new transaction within
+        this project. Opening an unchanged template does not create a new response.
+        Optional username and inTime query
         fields are supported by the default backend mapping.
       </p>
       <p className="hi-muted">
@@ -179,7 +181,7 @@ export default function Projects({ api }) {
         </p>
         <form className="hi-project-form" onSubmit={create}>
           <label>
-            Company ID
+            Project ID
             <input
               name="pid"
               pattern={ID_PATTERN}
@@ -190,7 +192,7 @@ export default function Projects({ api }) {
           </label>
           <label>
             <span>
-              Company Name <span className="text-[#8f0808]">*</span>
+              Project Name <span className="text-[#8f0808]">*</span>
             </span>
             <input
               disabled={saving}
